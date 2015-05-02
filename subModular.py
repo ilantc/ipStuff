@@ -2,7 +2,7 @@ import numpy as np
 import random
 import time
 import math
-import sys
+import gurobipy as gp
 
 def unique_permutations(seq):
     """
@@ -116,19 +116,115 @@ def swapVal(mat,r1,c1,r2,c2):
 #     
 #     
 
+def createILP(vals,nRows,nCols):
+    n = len(vals)
+    model = gp.Model()
+    # variables - x[i,j] = 1 iff the ith item in the permutation is vals[j]
+    x = {}
+    for i in range(n):
+        for j in range(n):
+            x[i,j] = model.addVar(vtype=gp.GRB.BINARY,     name=('A_%s = vals_%s' % (i,j)))
+    model.update()
+    for r1 in range(nRows - 1):
+        for r2 in range(r1 + 1,nRows):
+            for c1 in range(nCols - 1):
+                A1 = (r1*nCols) + (c1)
+                A3 = (r2*nCols) + (c1) 
+                for c2 in range(c1 + 1,nCols):
+                    A2 = (r1*nCols) + (c2)
+                    A4 = (r2*nCols) + (c2)
+                    model.addConstr(gp.quicksum(x[A1,j]*vals[j] for j in range(n)) + \
+                                    gp.quicksum(x[A4,j]*vals[j] for j in range(n)),gp.GRB.LESS_EQUAL, \
+                                    gp.quicksum(x[A2,j]*vals[j] for j in range(n)) + \
+                                    gp.quicksum(x[A3,j]*vals[j] for j in range(n)),'r_%s_c_%s_r_%s_c_%s' % (r1,c1,r2,c2))
+    
+    for i in range(n):
+        model.addConstr(gp.quicksum(x[i,j] for j in range(n)),gp.GRB.EQUAL,1)
+        model.addConstr(gp.quicksum(x[j,i] for j in range(n)),gp.GRB.EQUAL,1)
+    
+    firstColIndices = filter(lambda num: num % nCols == 0, range(n))
+    minIndex = vals.index(min(vals))
+    maxIndex = vals.index(max(vals))
+    
+#     # min and max elements in the first col
+#     model.addConstr(gp.quicksum(x[i,minIndex] for i in firstColIndices),gp.GRB.GREATER_EQUAL,1)
+#     model.addConstr(gp.quicksum(x[i,maxIndex] for i in firstColIndices),gp.GRB.GREATER_EQUAL,1)
+
+#     # min element top left corner, max element bottom left corner
+#     model.addConstr(x[n - nCols,maxIndex],gp.GRB.GREATER_EQUAL,1)
+#     model.addConstr(x[0,minIndex],gp.GRB.GREATER_EQUAL,1)
+
+#     # every col is non decreasing
+#     for col in range(nCols):
+#         for row in range(nRows - 1):
+#             index1 = (row * nRows) + col
+#             index2 = ((row + 1) * nRows) + col
+#             model.addConstr(gp.quicksum(x[index1,j] * vals[j] for j in range(n)),gp.GRB.LESS_EQUAL,\
+#                             gp.quicksum(x[index2,k] * vals[k] for k in range(n)))
+    
+    model.setObjective(1,gp.GRB.MAXIMIZE)
+    model.setParam( 'OutputFlag', False )
+    model.update()
+    model.optimize()
+    if model.getAttr('status') != gp.GRB.OPTIMAL:
+        print "\t", vals
+    
+    return (model, x)
+
+# def solveAlg1(vals,nRows,nCols):
+#     for i in range(nCols):
+#         # find the nRow numbers that has 
+#     
+
+def vars2matrix(vals,lpvars,nRows,nCols):
+    newPermutation = []
+    for i in range(nRows*nCols):
+        for j in range(nRows*nCols):
+            if lpvars[i,j].x > 0:
+                newPermutation.append(vals[j])
+    return createMatrixFromList(newPermutation,nRows,nCols)
+
 if __name__ == '__main__':
     
-    numbers = [1,1,1,1,8,8,16,2,2,2,2,3,3,15,3,3]
-    numbers = [random.random() * 10 for _ in range(16)]
-    numbers[0] = numbers[1] = numbers[2] = numbers[3]
-    numbers[4] = numbers[5] = numbers[6] = numbers[7]
-    numbers[8] = numbers[9]
-    numbers[10] = numbers[11]
-    numbers[12] = numbers[13]
-    numbers[14] = numbers[15] 
+    def expDistribution():
+        lam = 0.01
+        return -(math.log(random.random()))/lam
+    
+    def uniDistribution():
+        maxVal = 10
+        minVal = -10
+        return (random.random() * (maxVal - minVal)) + minVal
+    
+    nRows = 4
+    nCols = 5
+    niter = 50
+    dist = expDistribution
+    ncorrect = 0
+    for _ in range(niter):
+#         numbers = [-(math.log(random.random()))/0.5  for _ in range(nRows * nCols)]
+        numbers = [dist() for _ in range(nRows * nCols)]
+#     numbers[0] = numbers[1] = numbers[2] = numbers[3]
+#     numbers[4] = numbers[5] = numbers[6] = numbers[7]
+#     numbers[8] = numbers[9]
+#     numbers[10] = numbers[11]
+#     numbers[12] = numbers[13]
+#     numbers[14] = numbers[15] 
 #     numbers[4] = numbers[3] = numbers[2] = numbers[1] = numbers[0]
 #     numbers[10] = numbers[9] = numbers[8] = numbers[7] = numbers[6] = numbers[5] 
     
+        (model,lpVars) = createILP(numbers, nRows,nCols)
+        mat = vars2matrix(numbers,lpVars, nRows,nCols)
+        numbers.sort()
+        print ["%.3f" % t for t in numbers]
+        print mat
+        isSubModular = checkForSubMudularity(mat)
+        print "is sub modular =",isSubModular
+        if isSubModular:
+            ncorrect += 1
+        else:
+            print numbers
+    print ncorrect, "out of",niter,"were subModular"
+    exit()
     vals = set(numbers)
     
     countDenominator = 1
